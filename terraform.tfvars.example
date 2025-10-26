@@ -1,0 +1,31 @@
+# GCP Project Configuration
+project_id       = "your-gcp-project-id"
+region           = "europe-west4"
+credentials_file = "credentials/gcp-key.json"
+
+# Domain Configuration
+frontend_subdomain = "voiceia.techlab.com"
+api_subdomain      = "api.voiceia.techlab.com"
+
+# Database Configuration
+db_tier = "db-f1-micro" # or db-g1-small for production
+db_name = "audiotext"
+db_user = "app_user"
+
+# Redis Configuration
+redis_memory_gb = 1
+
+# Cloud Storage for Audio Files (Optional - set to true if not using AWS S3)
+create_audio_bucket = false
+audio_bucket_name   = "" # Leave empty to auto-generate name
+
+# Cloud Run Configuration
+api_min_instances = 1
+api_max_instances = 10
+api_memory        = "1Gi"
+api_cpu           = "1"
+
+worker_min_instances = 1
+worker_max_instances = 5
+worker_memory        = "4Gi"
+worker_cpu           = "2"
