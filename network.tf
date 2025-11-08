@@ -17,6 +17,10 @@ resource "google_vpc_access_connector" "main" {
   region        = var.region
   ip_cidr_range = "10.8.0.0/28"
   network       = google_compute_network.main.name
+
+  # Scaling configuration
+  min_instances = 2
+  max_instances = 3
 }
 
 # Private IP allocation for Cloud SQL
@@ -33,4 +37,10 @@ resource "google_service_networking_connection" "private_vpc_connection" {
   network                 = google_compute_network.main.id
   service                 = "servicenetworking.googleapis.com"
   reserved_peering_ranges = [google_compute_global_address.private_ip.name]
+
+  # Ensure the service networking API is enabled before creating connection
+  depends_on = [google_compute_global_address.private_ip]
+
+  # Prevent accidental deletion
+  deletion_policy = "ABANDON"
 }

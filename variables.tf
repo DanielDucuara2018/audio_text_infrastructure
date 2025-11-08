@@ -104,9 +104,9 @@ variable "worker_max_instances" {
 }
 
 variable "worker_memory" {
-  description = "Memory allocation for Worker service"
+  description = "Memory allocation for Worker service (reduced from 4Gi due to faster-whisper efficiency)"
   type        = string
-  default     = "4Gi"
+  default     = "2Gi" # Reduced from 4Gi - faster-whisper uses 50% less memory
 }
 
 variable "worker_cpu" {

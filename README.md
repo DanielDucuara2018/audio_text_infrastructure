@@ -108,38 +108,21 @@ graph TB
 ## Prerequisites
 
 - GCP account with billing enabled
-- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) installed
+- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) installed and authenticated
 - [Terraform](https://www.terraform.io/downloads.html) installed
-- GCP service account with required permissions
-- Cloudflare account with domain purchased
-- Docker images built and pushed to GCR:
-  - `gcr.io/PROJECT_ID/audio-api:latest`
-  - `gcr.io/PROJECT_ID/audio-worker:latest`
+- GCP project with Owner or Editor role (for API enablement)
 
 ## Quick Start
 
-### 1. Setup GCP Credentials
-
-Create a service account with required permissions and download the JSON key:
+### 1. Authenticate with GCP
 
 ```bash
-# Create credentials directory
-mkdir -p credentials
+# Login to GCP
+gcloud auth login
 
-# Place your service account JSON key at:
-# credentials/gcp-key.json
+# Set your project
+gcloud config set project YOUR_PROJECT_ID
 ```
-
-**Required service account roles:**
-
-- Cloud Run Admin
-- Cloud SQL Admin
-- Redis Admin
-- Storage Admin
-- Compute Network Admin
-- Service Usage Admin
-
-See `credentials/README.md` for detailed instructions.
 
 ### 2. Configure Variables
 
@@ -165,41 +148,47 @@ api_subdomain      = "api.voiceia.techlab.com"
 **Using helper script (recommended):**
 
 ```bash
-./deploy.sh        # Deploy infrastructure
-./deploy.sh plan   # Preview changes only
+./deploy.sh init      # Enable APIs and initialize Terraform
+./deploy.sh deploy    # Deploy infrastructure (or use: ./deploy.sh)
+./deploy.sh plan      # Preview changes only
 ```
 
 **Or manually:**
 
 ```bash
-terraform init       # Initialize Terraform and download providers
-terraform fmt        # Format configuration files
-terraform validate   # Validate configuration syntax
-terraform plan       # Preview changes
-terraform apply      # Create infrastructure
+# Enable required GCP APIs first
+./deploy.sh enable-apis
+
+# Then run Terraform
+terraform init
+terraform plan
+terraform apply
 ```
 
-### 4. Configure Cloudflare DNS
-
-Get the DNS configuration from Terraform outputs:
+### 4. Get Infrastructure Outputs
 
 ```bash
-terraform output cloudflare_dns_records
-# Or use: ./deploy.sh cloudflare
+terraform output
 ```
+
+This shows database credentials, Redis connection info, and other values needed for deployment.
+
+### 5. Configure Cloudflare DNS (Optional)
+
+If using Cloudflare for DNS and CDN:
 
 **In Cloudflare Dashboard:**
 
 1. Go to your domain → DNS → Records
 2. Add CNAME record for frontend:
    - **Type**: CNAME
-   - **Name**: `voiceia` (or full subdomain)
-   - **Target**: Your frontend bucket (from terraform output)
+   - **Name**: `voiceia` (or your subdomain)
+   - **Target**: `c.storage.googleapis.com`
    - **Proxy status**: ☁️ **Proxied** (orange cloud)
 3. Add CNAME record for API:
    - **Type**: CNAME
    - **Name**: `api.voiceia`
-   - **Target**: Your Cloud Run API URL (from terraform output)
+   - **Target**: Your Cloud Run API URL (from `terraform output`)
    - **Proxy status**: ☁️ **Proxied** (orange cloud)
 
 **Cloudflare SSL/TLS Settings:**
@@ -208,61 +197,36 @@ terraform output cloudflare_dns_records
 - Set encryption mode to **Full** or **Full (strict)**
 - Certificate should auto-provision (free Universal SSL)
 
-### 5. Deploy Applications
+### 6. Deploy Backend Services
 
-**Frontend:**
-
-```bash
-cd ../audio_text_frontend
-./scripts/deploy-cloud.sh -p gcp -b your-project-id-frontend
-```
-
-**Backend:**
+The backend deployment script automatically fetches infrastructure configuration from Terraform:
 
 ```bash
 cd ../audio_text_backend
 ./scripts/deploy-cloud.sh -p your-project-id
 ```
 
-### 6. Update Application Configuration
+This deploys both API and Worker services to Cloud Run with auto-configured database, Redis, and VPC settings.
 
-Get infrastructure values:
-
-```bash
-terraform output database_password
-terraform output redis_host
-terraform output redis_port
-```
-
-Update your backend `config.ini`:
-
-```ini
-[database]
-host = <database_private_ip>
-database = audiotext
-user = app_user
-password = <database_password>
-port = 5432
-
-[redis]
-host = <redis_host>
-port = <redis_port>
-```
-
-### 7. Verify Deployment
+### 7. Deploy Frontend
 
 ```bash
-# Check frontend
-curl https://voiceia.techlab.com
+cd ../audio_text_frontend
+npm run build
+gsutil -m rsync -r -d build gs://your-project-id-frontend
+```
 
-# Check API
-curl https://api.voiceia.techlab.com/api/v1
+### 8. Verify Deployment
 
+```bash
 # Check Cloud Run services
 gcloud run services list --region europe-west4
 
-# View all outputs
-terraform output
+# Check API health
+gcloud run services describe audio-api --region europe-west4 --format="get(status.url)"
+
+# View logs
+gcloud run services logs read audio-api --region europe-west4 --limit=50
 ```
 
 ## Project Structure
@@ -351,10 +315,11 @@ After deployment, get important values:
 # All outputs
 terraform output
 
-# Specific outputs
-terraform output api_url
-terraform output database_password
-terraform output cloudflare_dns_records
+# Or use the helper script
+./deploy.sh outputs
+
+# Deployment configuration (used by deploy-cloud.sh)
+terraform output -json deployment_config
 ```
 
 ## Updating Infrastructure
@@ -503,28 +468,34 @@ The Terraform configuration automatically injects these into Cloud Run services:
 
 ## Helper Scripts
 
-The project includes a deployment helper script:
+The `deploy.sh` script simplifies infrastructure management:
 
 ```bash
-./deploy.sh           # Deploy infrastructure
-./deploy.sh init      # Initialize Terraform
-./deploy.sh plan      # Preview changes
-./deploy.sh outputs   # Show all outputs
-./deploy.sh cloudflare # Show Cloudflare DNS config
-./deploy.sh destroy   # Destroy infrastructure (requires confirmation)
+./deploy.sh init         # Enable GCP APIs and initialize Terraform
+./deploy.sh deploy       # Deploy infrastructure (same as ./deploy.sh)
+./deploy.sh plan         # Preview changes
+./deploy.sh enable-apis  # Enable required GCP APIs only
+./deploy.sh outputs      # Show all Terraform outputs
+./deploy.sh destroy      # Destroy infrastructure (requires confirmation)
 ```
+
+**Important:** Run `./deploy.sh init` before first deployment to enable required GCP APIs.
+
+## Deployment Workflow
+
+1. **Deploy Infrastructure:** `./deploy.sh init && ./deploy.sh deploy`
+2. **Create Secrets:** Add AWS credentials to Secret Manager (if using S3)
+3. **Deploy Backend:** `cd ../audio_text_backend && ./scripts/deploy-cloud.sh -p PROJECT_ID`
+4. **Deploy Frontend:** Build and upload to Cloud Storage
+5. **Run Migrations:** Connect to Cloud Run and run Alembic migrations
+6. **Test:** Verify API endpoints and WebSocket connections
 
 ## Next Steps
 
-1. ✅ Deploy infrastructure with Terraform
-2. ✅ Configure Cloudflare DNS
-3. ✅ Deploy frontend to Cloud Storage
-4. ✅ Deploy backend Docker images to Cloud Run
-5. ✅ Run database migrations
-6. ✅ Test the application
-7. 📝 Set up monitoring and alerts
-8. 📝 Configure automatic backups
-9. 📝 Set up CI/CD pipeline
+- Set up monitoring and alerts in Cloud Console
+- Configure automatic database backups
+- Set up CI/CD pipeline for automated deployments
+- Configure custom domain with Cloudflare
 
 ## Related Projects
 

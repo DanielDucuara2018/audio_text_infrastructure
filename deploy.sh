@@ -36,10 +36,40 @@ fi
 echo "✅ Configuration files found"
 echo ""
 
+# Function to enable required GCP APIs
+enable_apis() {
+    echo "🔌 Checking and enabling required GCP APIs..."
+    echo ""
+    
+    # Required APIs for the infrastructure
+    REQUIRED_APIS=(
+        "run.googleapis.com"                    # Cloud Run (for API/Worker services)
+        "sqladmin.googleapis.com"               # Cloud SQL (PostgreSQL database)
+        "redis.googleapis.com"                  # Memorystore Redis
+        "compute.googleapis.com"                # Compute Engine (required for VPC, networking)
+        "vpcaccess.googleapis.com"              # VPC Access (for private networking)
+        "servicenetworking.googleapis.com"      # Service Networking (for Cloud SQL private IP)
+        "storage-api.googleapis.com"            # Cloud Storage (for audio files & frontend)
+        "storage-component.googleapis.com"      # Storage Component
+        "secretmanager.googleapis.com"          # Secret Manager (for AWS credentials)
+        "cloudbuild.googleapis.com"             # Cloud Build (for building Docker images)
+        "cloudresourcemanager.googleapis.com"   # Resource Manager (for project management)
+    )
+    
+    # Enable all APIs at once (more efficient)
+    echo "Enabling APIs..."
+    gcloud services enable "${REQUIRED_APIS[@]}" --quiet
+    
+    echo ""
+    echo "✅ All required APIs enabled"
+    echo ""
+}
+
 # Parse command
 case "${1:-deploy}" in
     init)
         echo "🔧 Initializing Terraform..."
+        enable_apis
         terraform init
         ;;
     
@@ -52,28 +82,28 @@ case "${1:-deploy}" in
     
     deploy)
         echo "🚀 Deploying infrastructure..."
+        enable_apis
         terraform fmt
         terraform validate
-        terraform plan
-        echo ""
-        read -p "Continue with deployment? (y/N) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            terraform apply
+        terraform apply
+        
+        # Check if terraform apply was successful
+        if [ $? -eq 0 ]; then
             echo ""
             echo "════════════════════════════════════════════════════════"
             echo "  ✨ Infrastructure Deployed!"
             echo "════════════════════════════════════════════════════════"
             echo ""
             echo "Next steps:"
-            echo "1. Configure Cloudflare DNS:"
-            echo "   terraform output cloudflare_dns_records"
+            echo "1. View infrastructure outputs:"
+            echo "   terraform output"
             echo ""
-            echo "2. Deploy frontend:"
-            echo "   cd ../audio_text_frontend && ./scripts/deploy-cloud.sh"
-            echo ""
-            echo "3. Deploy backend:"
+            echo "2. Deploy backend services:"
             echo "   cd ../audio_text_backend && ./scripts/deploy-cloud.sh -p PROJECT_ID"
+            echo ""
+            echo "3. Deploy frontend:"
+            echo "   cd ../audio_text_frontend && npm run build"
+            echo "   gsutil -m rsync -r -d build gs://PROJECT_ID-frontend"
             echo ""
         fi
         ;;
@@ -83,9 +113,8 @@ case "${1:-deploy}" in
         terraform output
         ;;
     
-    cloudflare)
-        echo "☁️  Cloudflare DNS Configuration:"
-        terraform output cloudflare_dns_records
+    enable-apis)
+        enable_apis
         ;;
     
     destroy)
@@ -106,16 +135,18 @@ case "${1:-deploy}" in
         echo "Usage: $0 [command]"
         echo ""
         echo "Commands:"
-        echo "  init        Initialize Terraform"
+        echo "  init        Initialize Terraform and enable APIs"
         echo "  plan        Preview infrastructure changes"
         echo "  deploy      Deploy infrastructure (default)"
         echo "  outputs     Show infrastructure outputs"
-        echo "  cloudflare  Show Cloudflare DNS configuration"
+        echo "  enable-apis Enable required GCP APIs"
         echo "  destroy     Destroy all infrastructure"
         echo ""
         echo "Examples:"
-        echo "  $0           # Deploy infrastructure"
-        echo "  $0 plan      # Preview changes"
-        echo "  $0 outputs   # Show outputs"
+        echo "  $0              # Deploy infrastructure"
+        echo "  $0 init         # Initialize Terraform"
+        echo "  $0 plan         # Preview changes"
+        echo "  $0 enable-apis  # Just enable APIs"
+        echo "  $0 outputs      # Show outputs"
         ;;
 esac
